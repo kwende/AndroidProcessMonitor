@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks.Dataflow;
+using System.Text.RegularExpressions; 
 
 namespace ProcessWatchdog
 {
@@ -105,16 +106,43 @@ namespace ProcessWatchdog
             Console.Write("Process to monitor (name): ");
             string procName = Console.ReadLine();
 
+            Console.Write("Keyword to search for: "); 
+            string keyWord = Console.ReadLine(); 
+            if(string.IsNullOrEmpty(keyWord))
+            {
+                keyWord = null; 
+            }
+
             ProcInfo procToMonitor = procs.Where(n => n.Name == procName).FirstOrDefault(); 
 
             if(procToMonitor != null)
             {
-                Console.WriteLine($"Watching {procToMonitor.Name} with PID {procToMonitor.Pid}..."); 
+                Console.WriteLine($"Watching {procToMonitor.Name} with PID {procToMonitor.Pid}...");
+                DateTime lastLoggedAt = new DateTime(); 
                 for(; ;)
                 {
                     procs = GetProcs(client, devices[deviceNumber]);
                     if (procs.Any(n=>n.Pid == procToMonitor.Pid && n.Name == n.Name))
                     {
+                        ConsoleOutputReceiver logcatInspect = new ConsoleOutputReceiver();
+                        client.ExecuteRemoteCommand("logcat -d", devices[deviceNumber], logcatInspect);
+                        string[] allLogs = logcatInspect.ToString().Split("\n"); 
+                        foreach(string log in allLogs)
+                        {
+                            string dateTimeString = Regex.Match(log, @"\d{2}-\d{2} \d{1,2}:\d{1,2}:\d{1,2}.\d{1,3}").Value; 
+                            if(!string.IsNullOrEmpty(dateTimeString))
+                            {
+                                DateTime loggedAt = DateTime.ParseExact(dateTimeString, "MM-dd HH:mm:ss.fff", null);
+                                if (loggedAt > lastLoggedAt)
+                                {
+                                    if(keyWord != null && log.Contains(keyWord))
+                                    {
+                                        Console.WriteLine($"Keyword {keyWord} found: {log}"); 
+                                    }
+                                    lastLoggedAt = loggedAt; 
+                                }
+                            }
+                        }
                         Thread.Sleep(1000);
                     }
                     else
